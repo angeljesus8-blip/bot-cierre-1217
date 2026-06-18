@@ -4,8 +4,6 @@ import re
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 import google.generativeai as genai
-from PIL import Image
-import io
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 
@@ -144,9 +142,15 @@ async def process_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         photo_bytes = context.user_data.get('photo_bytes')
         extra_info = context.user_data.get('extra_info', '')
 
-        image = Image.open(io.BytesIO(photo_bytes))
+        import datetime
+        today = datetime.date.today().strftime("%d/%m/%Y")
 
-        today = __import__('datetime').date.today().strftime("%d/%m/%Y")
+        image_part = {
+            "inline_data": {
+                "mime_type": "image/jpeg",
+                "data": __import__('base64').b64encode(photo_bytes).decode()
+            }
+        }
 
         prompt = f"""{SYSTEM_PROMPT}
 
@@ -155,7 +159,7 @@ Información adicional del usuario: {extra_info}
 
 Analiza la imagen del POS y genera los reportes completos."""
 
-        response = model.generate_content([prompt, image])
+        response = model.generate_content([prompt, image_part])
 
         result = response.text
 

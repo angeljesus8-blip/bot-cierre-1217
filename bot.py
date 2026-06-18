@@ -144,7 +144,7 @@ Información del usuario: {extra_info}
 Analiza la imagen y genera los reportes completos."""
 
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-1.5-flash",
             contents=[
                 types.Part.from_bytes(data=photo_bytes, mime_type="image/jpeg"),
                 prompt

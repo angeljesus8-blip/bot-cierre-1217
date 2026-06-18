@@ -1,17 +1,18 @@
 import os
 import logging
-import re
+import base64
+import datetime
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
-import google.generativeai as genai
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from google import genai
+from google.genai import types
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-1.5-flash")
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 SYSTEM_PROMPT = """Eres el asistente de cierre diario de la tienda Huawei Experience Store 1217 Angelópolis.
 
@@ -89,28 +90,23 @@ Monto Total: $[bruto total garantías]
 [Nombre asesor] [#] seguros ($[bruto del asesor])
 (solo asesores con al menos 1 seguro)
 
-Responde SIEMPRE con los dos reportes listos para copiar. Si faltan datos (clientes, acumulados), pídelos antes de generar."""
-
-WAITING_INFO = 1
-
-user_data_store = {}
+Si faltan datos (clientes, acumulados) pídelos antes de generar."""
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Hola! Soy el asistente de cierre diario HES 1217.\n\n"
-        "📸 Mándame la foto del POS y luego dime:\n"
+        "📸 Mándame la foto del POS y escribe:\n"
         "• Clientes del día\n"
         "• Acumulado mensual anterior\n"
         "• Acumulado semanal anterior\n"
         "• Comentarios (opcional)\n\n"
-        "Puedes mandar todo en un solo mensaje de texto después de la foto."
+        "Puedes escribir los datos como caption de la foto o en un mensaje después."
     )
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo = update.message.photo[-1]
     file = await photo.get_file()
     file_bytes = await file.download_as_bytearray()
-
     context.user_data['photo_bytes'] = bytes(file_bytes)
 
     caption = update.message.caption or ""
@@ -120,75 +116,54 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(
             "📸 Foto recibida. Ahora dime:\n\n"
-            "*Clientes:* [número]\n"
-            "*Acumulado mensual:* [monto]\n"
-            "*Acumulado semanal:* [monto]\n"
-            "*Comentarios:* [opcional]",
-            parse_mode='Markdown'
+            "Clientes: [número]\n"
+            "Acumulado mensual: [monto]\n"
+            "Acumulado semanal: [monto]\n"
+            "Comentarios: [opcional]"
         )
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if 'photo_bytes' not in context.user_data:
         await update.message.reply_text("📸 Primero mándame la foto del POS.")
         return
-
     context.user_data['extra_info'] = update.message.text
     await process_report(update, context)
 
 async def process_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏳ Procesando... un momento.")
-
     try:
         photo_bytes = context.user_data.get('photo_bytes')
         extra_info = context.user_data.get('extra_info', '')
-
-        import datetime
         today = datetime.date.today().strftime("%d/%m/%Y")
-
-        image_part = {
-            "inline_data": {
-                "mime_type": "image/jpeg",
-                "data": __import__('base64').b64encode(photo_bytes).decode()
-            }
-        }
 
         prompt = f"""{SYSTEM_PROMPT}
 
 Fecha de hoy: {today}
-Información adicional del usuario: {extra_info}
+Información del usuario: {extra_info}
 
-Analiza la imagen del POS y genera los reportes completos."""
+Analiza la imagen y genera los reportes completos."""
 
-        response = model.generate_content([prompt, image_part])
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=[
+                types.Part.from_bytes(data=photo_bytes, mime_type="image/jpeg"),
+                prompt
+            ]
+        )
 
         result = response.text
-
-        # Split into two reports if there are guarantees
-        parts = result.split("1217\n")
-
-        if len(parts) >= 2:
-            reporte_principal = parts[0].strip()
-            reporte_garantias = "1217\n" + parts[1].strip()
-
-            await update.message.reply_text(reporte_principal)
-            await update.message.reply_text("─" * 20)
-            await update.message.reply_text(reporte_garantias)
-        else:
-            await update.message.reply_text(result)
-
+        await update.message.reply_text(result)
         context.user_data.clear()
 
     except Exception as e:
         logging.error(f"Error: {e}")
-        await update.message.reply_text(f"❌ Error procesando la imagen: {str(e)}\n\nIntenta de nuevo.")
+        await update.message.reply_text(f"❌ Error: {str(e)}\n\nIntenta de nuevo.")
 
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-
     app.run_polling()
 
 if __name__ == "__main__":

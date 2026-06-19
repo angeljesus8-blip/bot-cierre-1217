@@ -159,7 +159,6 @@ Analiza la imagen y genera los reportes completos."""
         logging.error(f"Error: {e}")
         await update.message.reply_text(f"❌ Error: {str(e)}\n\nIntenta de nuevo.")
 
-import asyncio
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -176,16 +175,10 @@ def run_health_server():
     server = HTTPServer(("0.0.0.0", port), HealthHandler)
     server.serve_forever()
 
-async def main():
+if __name__ == "__main__":
     threading.Thread(target=run_health_server, daemon=True).start()
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    async with app:
-        await app.start()
-        await app.updater.start_polling()
-        await asyncio.Event().wait()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    app.run_polling(drop_pending_updates=True)

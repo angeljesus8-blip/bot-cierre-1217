@@ -176,6 +176,9 @@ def run_health_server():
     server.serve_forever()
 
 if __name__ == "__main__":
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     threading.Thread(target=run_health_server, daemon=True).start()
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))

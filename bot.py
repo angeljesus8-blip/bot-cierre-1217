@@ -4,15 +4,15 @@ import base64
 import datetime
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from google import genai
-from google.genai import types
+from groq import Groq
+import base64
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 
-client = genai.Client(api_key=GEMINI_API_KEY)
+client = Groq(api_key=GROQ_API_KEY)
 
 SYSTEM_PROMPT = """Eres el asistente de cierre diario de la tienda Huawei Experience Store 1217 Angelópolis.
 
@@ -143,15 +143,21 @@ Información del usuario: {extra_info}
 
 Analiza la imagen y genera los reportes completos."""
 
-        response = client.models.generate_content(
-            model="gemini-2.0-flash-lite",
-            contents=[
-                types.Part.from_bytes(data=photo_bytes, mime_type="image/jpeg"),
-                prompt
-            ]
+        image_b64 = base64.b64encode(photo_bytes).decode()
+
+        response = client.chat.completions.create(
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+                    {"type": "text", "text": prompt}
+                ]
+            }],
+            max_tokens=4096
         )
 
-        result = response.text
+        result = response.choices[0].message.content
         await update.message.reply_text(result)
         context.user_data.clear()
 
